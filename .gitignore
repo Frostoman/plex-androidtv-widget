@@ -22,3 +22,6 @@ build_log.txt
 *.keystore
 *.jks
 keystore.properties
+
+# Local backup of Claude Code chat history (contains secrets — never commit)
+/_session-backup/
