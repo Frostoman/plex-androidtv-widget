@@ -12,9 +12,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Fetches both libraries (movies + shows) + posters from the linked server and
- * refreshes the local cache and the two home-screen channels. If the stored
- * connection has gone stale (server moved networks), it re-discovers via plex.tv.
+ * Fetches both libraries (movies + shows) + posters from the **chosen** server and
+ * refreshes the local cache and the two home-screen channels.
+ *
+ * Server selection is a deliberate, manual choice (Settings → Server). Sync never
+ * switches servers on its own: if the chosen server's connection is stale it only
+ * re-resolves *that same server's* address, and if the server is unreachable the sync
+ * simply fails and the previously cached library stays on screen — we never silently
+ * fall back to a different server.
  */
 class SyncManager(private val context: Context) {
 
@@ -29,38 +34,42 @@ class SyncManager(private val context: Context) {
         val store = app.plexStore
         val client = app.plexClient
         val token = store.accountToken ?: return@withContext Result.NotConfigured
+        // A server must have been chosen (Settings → Server / first link). We never pick one here.
+        val machineId = store.serverMachineId ?: return@withContext Result.NotConfigured
 
         try {
-            if (store.serverBaseUri == null && !rediscover(client, store, token)) {
-                return@withContext Result.Error(context.getString(com.androidtv.plexwidget.R.string.link_no_server))
-            }
-            // First attempt with the stored connection; on failure, re-discover once.
+            // First attempt with the stored connection; on failure, refresh the connection
+            // to the SAME chosen server only — never switch to a different one.
             val counts = try {
                 fetchAndPublish(client, store)
             } catch (e: Exception) {
-                android.util.Log.w(TAG, "sync: stored connection failed, re-discovering", e)
-                if (rediscover(client, store, token)) fetchAndPublish(client, store) else throw e
+                android.util.Log.w(TAG, "sync: connection failed, refreshing chosen server", e)
+                if (refreshConnection(client, store, token, machineId)) {
+                    fetchAndPublish(client, store)
+                } else {
+                    // Chosen server unreachable — keep the existing data/channels untouched.
+                    throw e
+                }
             }
             Result.Success(counts.first, counts.second)
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "sync failed", e)
+            android.util.Log.e(TAG, "sync failed — keeping previously synced library", e)
             Result.Error(e.message ?: e.javaClass.simpleName)
         }
     }
 
-    /** Re-pick a reachable server connection via plex.tv; updates the store. Returns success. */
-    private fun rediscover(client: PlexClient, store: PlexStore, token: String): Boolean {
-        val servers = client.resources(token)
-        if (servers.isEmpty()) return false
-        val server = servers.firstOrNull { it.machineId == store.serverMachineId }
-            ?: servers.firstOrNull { it.owned }
-            ?: servers.first()
+    /**
+     * Re-resolve a reachable address for the **chosen** server (matched by machineId) and
+     * update the stored connection. Returns false if that server isn't currently available
+     * — in which case the caller keeps the old data and does NOT switch servers.
+     */
+    private fun refreshConnection(client: PlexClient, store: PlexStore, token: String, machineId: String): Boolean {
+        val server = client.resources(token).firstOrNull { it.machineId == machineId } ?: return false
         val uri = client.pickReachableConnection(server) ?: return false
         store.serverName = server.name
-        store.serverMachineId = server.machineId
         store.serverToken = server.accessToken
         store.serverBaseUri = uri
-        android.util.Log.i(TAG, "rediscover: ${server.name} -> $uri")
+        android.util.Log.i(TAG, "refreshConnection: ${server.name} -> $uri")
         return true
     }
 
