@@ -22,8 +22,8 @@ android {
         applicationId = "com.androidtv.plexwidget"
         minSdk = 21
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.3.1"
     }
 
     // Output APK named "PlexAndroidTVWidget-<buildtype>.apk".

@@ -1,5 +1,10 @@
 # Plex Android TV Widget
 
+> ℹ️ **This is the v1.3.x line for the Plex app _before_ 2026.19.** For the **Plex app 2026.19
+> and newer** (Plex's React Native rewrite), use **v1.4 or newer** — see the
+> [main branch](https://github.com/Frostoman/plex-androidtv-widget) and
+> [Releases](https://github.com/Frostoman/plex-androidtv-widget/releases).
+
 A lightweight **Android TV** app that puts your **[Plex](https://www.plex.tv/)** library on the home
 screen as **two channels** — one for **Movies**, one for **TV Shows**. Selecting a movie **plays it
 instantly** in the Plex app; selecting a show opens its **next unwatched episode**.

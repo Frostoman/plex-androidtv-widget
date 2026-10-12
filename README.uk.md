@@ -1,5 +1,10 @@
 # Plex Android TV Widget
 
+> ℹ️ **Це лінійка v1.3.x для застосунку Plex _до_ 2026.19.** Для **Plex 2026.19 і новіших**
+> (перепис на React Native) використовуйте **v1.4 або новішу** — див.
+> [гілку main](https://github.com/Frostoman/plex-androidtv-widget) та
+> [Releases](https://github.com/Frostoman/plex-androidtv-widget/releases).
+
 Легкий додаток для **Android TV**, що виводить вашу бібліотеку **[Plex](https://www.plex.tv/)** на
 головний екран у вигляді **двох каналів** — один для **Фільмів**, один для **Серіалів**. Вибір
 фільму **одразу запускає його** в застосунку Plex; вибір серіалу запускає його **перший
