@@ -27,7 +27,8 @@ import java.net.URLEncoder
  * crash with an NPE when the stored row has a null description (they read it back
  * via fromCursor() -> setDescription(null)). We therefore avoid those entirely:
  * the channel name is updated directly through ContentResolver, and programs are
- * wiped + republished each sync (also prevents duplicate cards).
+ * wiped + republished each sync (also prevents duplicate cards). Stray channels left
+ * behind when our app data was cleared are removed on every sync (see reconcileChannels).
  */
 class TvChannelPublisher(private val context: Context) {
 
@@ -41,19 +42,14 @@ class TvChannelPublisher(private val context: Context) {
         // Only items the user kept checked appear in the home-screen widget.
         val visible = items.filter { store.isVisible(kind, it.ratingKey) }
 
-        // Clear existing programs before republishing.
-        // 1) Best-effort bulk delete (cleans orphans, but some launchers forbid a
-        //    selection clause on the preview_program URI -> ignore that failure).
-        runCatching {
-            context.contentResolver.delete(
-                TvContractCompat.PreviewPrograms.CONTENT_URI,
-                "${TvContractCompat.PreviewPrograms.COLUMN_CHANNEL_ID} = ?",
-                arrayOf(channelId.toString()),
-            )
-        }.onFailure { android.util.Log.w(TAG, "bulk program delete not permitted; using tracked ids", it) }
-        // 2) Reliable per-id delete of programs we published last time (always allowed).
+        // Clear existing programs before republishing, deleting per id (launchers reject a
+        // selection clause on a preview_program delete):
+        // 1) the programs we published last time;
         val oldIds = readProgramIds(kind)
         for (id in oldIds) runCatching { helper.deletePreviewProgram(id) }
+        // 2) anything else of ours still on the channel (e.g. the channel was re-adopted
+        //    after our app data was cleared).
+        for (id in ownProgramIds(channelId)) runCatching { helper.deletePreviewProgram(id) }
         android.util.Log.i(TAG, "publish[$kind]: removed ${oldIds.size} tracked, adding ${visible.size}/${items.size}")
 
         val type = if (kind == MediaKind.SHOW) {
@@ -116,12 +112,15 @@ class TvChannelPublisher(private val context: Context) {
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun ensureChannel(kind: MediaKind): Long {
+        reconcileChannels()
         val displayName = channelName(kind)
         val existing = prefs.getLong(channelIdKey(kind), -1L)
 
         fun writeName(id: Long): Int {
             val values = ContentValues().apply {
                 put(TvContractCompat.Channels.COLUMN_DISPLAY_NAME, displayName)
+                // Tag (or re-tag channels from older versions) so we can recognise it later.
+                put(TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID, channelTag(kind))
             }
             return runCatching {
                 context.contentResolver.update(TvContractCompat.buildChannelUri(id), values, null, null)
@@ -137,6 +136,7 @@ class TvChannelPublisher(private val context: Context) {
         val channel = PreviewChannel.Builder()
             .setDisplayName(displayName)
             .setDescription("") // non-null avoids fromCursor NPE on later reads
+            .setInternalProviderId(channelTag(kind))
             .setAppLinkIntent(Intent(context, MainActivity::class.java))
             .setLogo(android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888))
             .build()
@@ -149,6 +149,65 @@ class TvChannelPublisher(private val context: Context) {
             .onFailure { android.util.Log.w(TAG, "requestChannelBrowsable not handled", it) }
         return id
     }
+
+    /**
+     * Our channels live in the system TvProvider, but their ids live in our own prefs. If our
+     * app data is cleared, we lose track of them and create new ones on the next sync — the
+     * old channels stay on the home screen (and in the launcher's channel list) with their
+     * last, never-updated content, so titles appear duplicated and long-deleted titles linger.
+     * Uninstalling removes them; clearing data does not.
+     *
+     * So before every publish: keep one channel per kind — the tracked one, else adopt an
+     * existing channel tagged with that kind — and delete every other channel we own.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun reconcileChannels() {
+        val owned = ownChannels() ?: return // query failed: leave everything as is
+        val keep = mutableSetOf<Long>()
+        for (kind in MediaKind.entries) {
+            val tracked = prefs.getLong(channelIdKey(kind), -1L)
+            val id = owned.firstOrNull { it.first == tracked }?.first
+                ?: owned.firstOrNull { it.second == channelTag(kind) && it.first !in keep }?.first
+            if (id == null) {
+                prefs.edit().remove(channelIdKey(kind)).remove(programsKey(kind)).apply()
+                continue
+            }
+            keep += id
+            if (id != tracked) {
+                // Its programs aren't in our tracked list; publish() sweeps them by channel.
+                prefs.edit().putLong(channelIdKey(kind), id).remove(programsKey(kind)).apply()
+                android.util.Log.i(TAG, "reconcile[$kind]: adopted existing channel id=$id")
+            }
+        }
+        for ((id, _) in owned) {
+            if (id in keep) continue
+            runCatching { context.contentResolver.delete(TvContractCompat.buildChannelUri(id), null, null) }
+                .onSuccess { android.util.Log.i(TAG, "reconcile: deleted orphan channel id=$id") }
+                .onFailure { android.util.Log.w(TAG, "reconcile: delete channel id=$id failed", it) }
+        }
+    }
+
+    /** (id, internal provider id) of every channel we own; TvProvider only returns our own. */
+    private fun ownChannels(): List<Pair<Long, String?>>? = runCatching {
+        context.contentResolver.query(
+            TvContractCompat.Channels.CONTENT_URI,
+            arrayOf(TvContractCompat.Channels._ID, TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID),
+            null, null, null,
+        )?.use { c ->
+            buildList { while (c.moveToNext()) add(c.getLong(0) to (if (c.isNull(1)) null else c.getString(1))) }
+        }
+    }.onFailure { android.util.Log.w(TAG, "channel query failed", it) }.getOrNull()
+
+    /** Ids of our preview programs on [channelId] (filtered here: some launchers reject selections). */
+    private fun ownProgramIds(channelId: Long): List<Long> = runCatching {
+        context.contentResolver.query(
+            TvContractCompat.PreviewPrograms.CONTENT_URI,
+            arrayOf(TvContractCompat.PreviewPrograms._ID, TvContractCompat.PreviewPrograms.COLUMN_CHANNEL_ID),
+            null, null, null,
+        )?.use { c ->
+            buildList { while (c.moveToNext()) if (c.getLong(1) == channelId) add(c.getLong(0)) }
+        } ?: emptyList()
+    }.onFailure { android.util.Log.w(TAG, "program query failed", it) }.getOrDefault(emptyList())
 
     /** User-defined channel name (persisted); falls back to the per-kind default string. */
     private fun channelName(kind: MediaKind): String =
@@ -213,6 +272,7 @@ class TvChannelPublisher(private val context: Context) {
         MediaKind.SHOW -> R.string.channel_name_shows
     }
 
+    private fun channelTag(kind: MediaKind) = "plexwidget_${kind.key}"
     private fun channelIdKey(kind: MediaKind) = "channel_id_${kind.key}"
     private fun programsKey(kind: MediaKind) = "programs_${kind.key}"
     fun channelNameKey(kind: MediaKind) = "channel_name_${kind.key}"
