@@ -1,10 +1,8 @@
 # Plex Android TV Widget
 
-> ⚠️ **Compatibility notice:** the **Plex app v2026.19** is a full rewrite (React Native) that
-> changed how it handles launch intents. On that version and newer, **launching playback from the
-> widget no longer works** — clicking a card just opens the Plex app (the channels still display).
-> The latest release ([v1.3](../../releases/tag/v1.3)) works with the **Plex app _before_ 2026.19**.
-> A fix for the new Plex app is being investigated.
+> ℹ️ **Which version do I need?** Use **v1.4 or newer** with the **Plex app 2026.19 and newer**
+> (Plex's React Native rewrite). For the **Plex app _before_ 2026.19**, use
+> [v1.3.1](../../releases/tag/v1.3.1).
 
 A lightweight **Android TV** app that puts your **[Plex](https://www.plex.tv/)** library on the home
 screen as **two channels** — one for **Movies**, one for **TV Shows**. Selecting a movie **plays it
@@ -64,15 +62,23 @@ Movie → plays in Plex's player; Show → plays its first unwatched episode
 [`PlexLauncher`](app/src/main/java/com/androidtv/plexwidget/launch/PlexLauncher.kt) uses the exact
 intents Plex itself uses:
 
-- **Movie** → `plex://server://{machineId}/com.plexapp.plugins.library/library/metadata/{ratingKey}`
-  (the same intent Plex's own home-screen channel cards carry) → **starts playback immediately**.
+- **Movie** → `plex://watch/video?uri=<url-encoded server://{machineId}/com.plexapp.plugins.library/library/metadata/{ratingKey}>`
+  (the format the Plex app 2026.19+ uses for its own home-screen cards) → **starts playback**.
 - **Show** → its first **unwatched** episode is found via `/library/metadata/{id}/allLeaves`
-  (`viewCount == 0`) and played the same way. If everything is watched, the show's
-  `watch.plex.tv` page opens instead.
+  (`viewCount == 0`) and played the same way. If everything is watched, the first episode plays.
+
+The new Plex app rejects a play link that arrives before it has connected to your server
+("Can't Reach Server"), and after a cold start that takes it ~8–12 s. So the widget opens Plex
+first, waits (13 s on a cold start, 4 s if Plex was just used), then sends the play link.
+
+(The Plex app before 2026.19 used `plex://server://{machineId}/…/library/metadata/{ratingKey}`
+and connected in a few seconds — that's what [v1.3.1](../../releases/tag/v1.3.1) uses.)
 
 Home-screen cards point at our invisible [`OpenItemActivity`](app/src/main/java/com/androidtv/plexwidget/ui/OpenItemActivity.kt)
 trampoline rather than carrying these cross-package intents directly — the Google TV launcher
 rewrites the package on intents it fires itself, so the trampoline re-issues them from our process.
+While Plex warms up, the trampoline keeps a transparent window on top: Android only lets an app
+start activities for ~10 s after it leaves the foreground, which is shorter than Plex's cold start.
 
 > ⚠️ These deep links use Plex app internals (not an official public API). They work today
 > (tested on Android TV), but a future Plex update could change them.
@@ -129,7 +135,9 @@ keyPassword=your-password
 ## Known limitations
 
 - These deep links rely on **Plex app internals** — they work now but aren't a guaranteed public API.
-- Titles with no server id / catalog slug (e.g. unmatched "Other Videos") fall back to opening the Plex app.
+- On a cold start, Plex's home screen shows for ~13 s before playback begins — the new Plex app
+  needs that long to connect to your server.
+- If a play link can't be built (e.g. a show's episodes can't be looked up), the click just opens the Plex app.
 - Some launchers prefix the channel with the app label and a colon (e.g. `Plex Library:`); this is
   launcher-controlled and can't be removed via the channel API.
 

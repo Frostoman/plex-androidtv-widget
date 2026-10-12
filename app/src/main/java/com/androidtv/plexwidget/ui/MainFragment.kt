@@ -97,11 +97,8 @@ class MainFragment : BrowseSupportFragment() {
         if (!PlexLauncher.isPlexInstalled(requireContext())) {
             toast(getString(R.string.plex_missing)); return
         }
-        val ctx = requireContext().applicationContext
-        lifecycleScope.launch {
-            val uri = PlexLauncher.playUri(ctx, item)
-            PlexLauncher.launchWithWarmup(ctx, uri)
-        }
+        // Same path as a home-screen card: the trampoline handles Plex warm-up + deep link.
+        startActivity(PlexLauncher.homeCardIntent(requireContext(), item))
     }
 
     private fun handleAction(action: UiAction) {

@@ -165,19 +165,22 @@ class PlexClient(
     }
 
     /**
-     * The ratingKey of the first **unwatched** episode of a show (in season/episode
-     * order), or null if every episode is watched / there are none. `allLeaves`
-     * returns all episodes flattened and ordered; `viewCount == 0` means unwatched.
+     * The ratingKey of the episode to play for a show: the first **unwatched** episode
+     * (in season/episode order), or — if every episode is watched — the very first
+     * episode (so a finished show replays from the start). Null only if the show has no
+     * episodes. `allLeaves` returns all episodes flattened and ordered; `viewCount == 0`
+     * means unwatched.
      */
-    fun firstUnwatchedEpisode(baseUri: String, serverToken: String, showRatingKey: String): String? {
+    fun episodeToPlay(baseUri: String, serverToken: String, showRatingKey: String): String? {
         val req = serverRequest("$baseUri/library/metadata/$showRatingKey/allLeaves", serverToken).build()
         val meta = JSONObject(execute(req)).getJSONObject("MediaContainer")
             .optJSONArray("Metadata") ?: return null
+        if (meta.length() == 0) return null
         for (i in 0 until meta.length()) {
             val o = meta.getJSONObject(i)
             if (o.optInt("viewCount", 0) == 0) return o.getString("ratingKey")
         }
-        return null
+        return meta.getJSONObject(0).getString("ratingKey") // all watched → first episode
     }
 
     /** A resized poster URL via the server's photo transcoder. */
