@@ -1,5 +1,11 @@
 # Plex Android TV Widget
 
+> ⚠️ **Compatibility notice:** the **Plex app v2026.19** is a full rewrite (React Native) that
+> changed how it handles launch intents. On that version and newer, **launching playback from the
+> widget no longer works** — clicking a card just opens the Plex app (the channels still display).
+> The latest release ([v1.3](../../releases/tag/v1.3)) works with the **Plex app _before_ 2026.19**.
+> A fix for the new Plex app is being investigated.
+
 A lightweight **Android TV** app that puts your **[Plex](https://www.plex.tv/)** library on the home
 screen as **two channels** — one for **Movies**, one for **TV Shows**. Selecting a movie **plays it
 instantly** in the Plex app; selecting a show opens its **next unwatched episode**.
