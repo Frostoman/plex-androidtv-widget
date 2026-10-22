@@ -1,5 +1,9 @@
 # Plex Android TV Widget
 
+> ⚠️ **Not actively maintained.** I can't maintain this project right now, so it's provided
+> **as is** and **there's no guarantee it works**: it may stop working at any time (for example,
+> after a Plex app update), and issues may go unanswered. You're welcome to fork it.
+
 > ℹ️ **Which version do I need?** Use **v1.4 or newer** with the **Plex app 2026.19 and newer**
 > (Plex's React Native rewrite). For the **Plex app _before_ 2026.19**, use
 > [v1.3.1](../../releases/tag/v1.3.1).
